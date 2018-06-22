@@ -1,3 +1,11 @@
-cs50
-Flask
-Flask-Session
+click==6.7
+cs50==2.4.1
+Flask==1.0.2
+Flask-Session==0.3.1
+itsdangerous==0.24
+Jinja2==2.10
+MarkupSafe==1.0
+SQLAlchemy==1.2.8
+sqlparse==0.2.4
+termcolor==1.1.0
+Werkzeug==0.14.1
