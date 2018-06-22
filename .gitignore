@@ -1,0 +1,4 @@
+venv/
+.idea/
+key.txt
+finance.db
