@@ -19,6 +19,7 @@ app = Flask(__name__)
 # Ensure templates are auto-reloaded
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
+
 # Ensure responses aren't cached
 @app.after_request
 def after_request(response):
@@ -26,6 +27,7 @@ def after_request(response):
     response.headers["Expires"] = 0
     response.headers["Pragma"] = "no-cache"
     return response
+
 
 # Custom filter
 app.jinja_env.filters["usd"] = usd
@@ -44,7 +46,35 @@ db = SQL("sqlite:///finance.db")
 @login_required
 def index():
     """Show portfolio of stocks"""
-    return apology("TODO")
+
+    # get the stocks and the shares of each stock that the user owns from the database
+    portfolio = db.execute("SELECT company, shares FROM portfolio WHERE id = :id",
+                           id=session["user_id"])
+
+    # variable to hold the total worth of all the stock options
+    total_value = 0
+
+    # iterate through all the stocks to calculate the total worth of their value
+    for stocks in portfolio:
+        symbol = stocks["company"]
+        shares = stocks["shares"]
+        stock = lookup(symbol)
+        value = stock["price"] * shares
+        total_value += value
+        db.execute("UPDATE portfolio SET price=:price, total=:total WHERE id=:id AND company=:company",
+                   price=usd(stock["price"]), total=usd(value),
+                   id=session["user_id"], company=stock["symbol"])
+
+    # get user's cash
+    cash = db.execute("SELECT cash FROM users WHERE id = :id", id=session["user_id"])
+    cash = cash[0]["cash"]
+
+    net_worth = total_value + cash
+
+    # print updated portfolio to index page
+    updated_portfolio = db.execute("SELECT * FROM portfolio WHERE id = :id", id=session["user_id"])
+
+    return render_template("index.html", stocks=updated_portfolio, total=usd(net_worth), cash=usd(cash))
 
 
 @app.route("/buy", methods=["GET", "POST"])
@@ -76,21 +106,24 @@ def buy():
                    cost=price, id=session["user_id"])
 
         # update transaction in database
-        portfolio = db.execute("SELECT shares FROM portfolio WHERE id = :id AND company = :company",
+        portfolio = db.execute("SELECT shares FROM portfolio WHERE id=:id AND company=:company",
                                id=session["user_id"], company=stock["symbol"])
 
         # create portfolio if it does not exist
         if not portfolio:
-            db.execute("INSERT INTO portfolio (company, shares, price, id) "
-                       "VALUES (:company, :shares, :price, :id)",
+            db.execute("INSERT INTO portfolio (company, shares, price, id, total) "
+                       "VALUES (:company, :shares, :price, :id, :total)",
                        company=stock["symbol"], shares=shares,
-                       price=usd(stock["price"]), id=session["user_id"])
+                       price=(stock["price"]), id=session["user_id"],
+                       total=(shares * stock["price"]))
 
         # otherwise update existing portfolio
         else:
             total_shares = portfolio[0]["shares"] + shares
-            db.execute("UPDATE users SET shares = :total WHERE id = :id AND company = :company",
-                       total=total_shares, id=session["user_id"], company=stock["symbol"])
+            db.execute("UPDATE portfolio SET shares = :shares WHERE id = :id AND company = :company",
+                       shares=total_shares, id=session["user_id"], company=stock["symbol"])
+
+        return redirect("/")
 
     else:
         return render_template("buy.html")
