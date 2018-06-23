@@ -51,7 +51,49 @@ def index():
 @login_required
 def buy():
     """Buy shares of stock"""
-    return apology("TODO")
+
+    if request.method == "POST":
+        stock = lookup(request.form.get("symbol"))
+        if not stock:
+            return apology("stock is not valid", 400)
+
+        try:
+            shares = int(request.form.get("shares"))
+            if shares < 0:
+                return apology("no negative stocks", 400)
+        except:
+            return apology("you can't buy fractions of stocks!")
+
+        price = float(stock["price"]) * shares
+        money = db.execute("SELECT cash FROM users WHERE id = :id", id=session["user_id"])
+        money = float(money[0]["cash"])
+
+        if price > money:
+            return apology("you're not that rich")
+
+        # update cash in database
+        db.execute("UPDATE users SET cash = cash - :cost WHERE id = :id",
+                   cost=price, id=session["user_id"])
+
+        # update transaction in database
+        portfolio = db.execute("SELECT shares FROM portfolio WHERE id = :id AND company = :company",
+                               id=session["user_id"], company=stock["symbol"])
+
+        # create portfolio if it does not exist
+        if not portfolio:
+            db.execute("INSERT INTO portfolio (company, shares, price, id) "
+                       "VALUES (:company, :shares, :price, :id)",
+                       company=stock["symbol"], shares=shares,
+                       price=usd(stock["price"]), id=session["user_id"])
+
+        # otherwise update existing portfolio
+        else:
+            total_shares = portfolio[0]["shares"] + shares
+            db.execute("UPDATE users SET shares = :total WHERE id = :id AND company = :company",
+                       total=total_shares, id=session["user_id"], company=stock["symbol"])
+
+    else:
+        return render_template("buy.html")
 
 
 @app.route("/history")
@@ -113,13 +155,45 @@ def logout():
 @login_required
 def quote():
     """Get stock quote."""
-    return apology("TODO")
+
+    if request.method == "POST":
+        stocks = lookup(request.form.get("symbol"))
+        if not stocks:
+            return apology("stock is not valid")
+        return render_template("quoted.html", quote=stocks)
+
+    else:
+        return render_template("quote.html")
 
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     """Register user"""
-    return apology("TODO")
+
+    if request.method == "POST":
+        if not request.form.get("username"):
+            return apology("Must provide username", 403)
+        elif not request.form.get("password"):
+            return apology("Must provide password", 403)
+        elif not request.form.get("confirmation"):
+            return apology("Must confirm password", 403)
+        elif request.form.get("password") != request.form.get("confirmation"):
+            return apology("Passwords do not match", 403)
+
+        hash = generate_password_hash(request.form.get("password"))
+
+        result = db.execute("INSERT INTO users (username, hash) VALUES (:username, :hash)",
+                            username=request.form.get("username"), hash=hash)
+        if not result:
+            return apology("User already exists", 403)
+
+        user_id = db.execute("SELECT id FROM users WHERE username IS :username",
+                             username=request.form.get("username"))
+        session["user_id"] = user_id[0]["id"]
+        return redirect("/")
+
+    else:
+        return render_template("register.html")
 
 
 @app.route("/sell", methods=["GET", "POST"])

@@ -1,4 +1,4 @@
 venv/
 .idea/
-key.txt
-finance.db
+private/
+__pycache__/

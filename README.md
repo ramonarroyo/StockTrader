@@ -1,4 +1,6 @@
 # StockTrader
-Trade real stocks with fake money in this web application using Flask and sqlite!
+Trade stocks with fake money in this web application using Flask and sqlite!
 
-WIP
+From Harvard CS50.
+
+WIP.
