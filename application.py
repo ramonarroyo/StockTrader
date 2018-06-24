@@ -40,7 +40,8 @@ app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
 # Configure CS50 Library to use SQLite database
-db = SQL("sqlite:///finance.db")
+basedir = os.path.abspath(os.path.dirname(__file__))
+db = SQL('sqlite:///' + os.path.join(basedir, 'finance.db'))
 
 
 @app.route("/")
