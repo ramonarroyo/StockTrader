@@ -6,6 +6,7 @@ from flask_session import Session
 from tempfile import mkdtemp
 from werkzeug.exceptions import default_exceptions
 from werkzeug.security import check_password_hash, generate_password_hash
+from datetime import datetime
 
 from helpers import apology, login_required, lookup, usd
 
@@ -58,8 +59,11 @@ def index():
     for stocks in portfolio:
         symbol = stocks["company"]
         shares = stocks["shares"]
-        stock = lookup(symbol)
-        value = stock["price"] * shares
+        try:  # free API key is rate limited
+            stock = lookup(symbol)
+            value = stock["price"] * shares
+        except:
+            return apology("too many API requests, slow down")
         total_value += value
         db.execute("UPDATE portfolio SET price=:price, total=:total WHERE id=:id AND company=:company",
                    price=usd(stock["price"]), total=usd(value),
@@ -92,7 +96,7 @@ def buy():
             if shares < 0:
                 return apology("no negative stocks", 400)
         except:
-            return apology("you can't buy fractions of stocks!")
+            return apology("must provide number of shares!")
 
         price = float(stock["price"]) * shares
         money = db.execute("SELECT cash FROM users WHERE id = :id", id=session["user_id"])
@@ -101,11 +105,18 @@ def buy():
         if price > money:
             return apology("you're not that rich")
 
-        # update cash in database
+        # add transaction to history database
+        db.execute("INSERT INTO history (id, company, shares, price, date) "
+                   "VALUES (:id, :company, :shares, :price, :date)",
+                   id=session["user_id"], company=stock["symbol"],
+                   shares=shares, price=stock["price"],
+                   date=datetime.now().isoformat(' ', 'seconds'))
+
+        # update cash in users database
         db.execute("UPDATE users SET cash = cash - :cost WHERE id = :id",
                    cost=price, id=session["user_id"])
 
-        # update transaction in database
+        # update transaction in portfolio database
         portfolio = db.execute("SELECT shares FROM portfolio WHERE id=:id AND company=:company",
                                id=session["user_id"], company=stock["symbol"])
 
@@ -114,7 +125,7 @@ def buy():
             db.execute("INSERT INTO portfolio (company, shares, price, id, total) "
                        "VALUES (:company, :shares, :price, :id, :total)",
                        company=stock["symbol"], shares=shares,
-                       price=(stock["price"]), id=session["user_id"],
+                       price=stock["price"], id=session["user_id"],
                        total=(shares * stock["price"]))
 
         # otherwise update existing portfolio
@@ -133,7 +144,10 @@ def buy():
 @login_required
 def history():
     """Show history of transactions"""
-    return apology("TODO")
+
+    history = db.execute("SELECT * FROM history WHERE id=:id", id=session["user_id"])
+
+    return render_template("history.html", history=history)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -233,7 +247,57 @@ def register():
 @login_required
 def sell():
     """Sell shares of stock"""
-    return apology("TODO")
+
+    if request.method == "POST":
+
+        # select data input by the user
+        symbol = request.form.get("symbol")
+        if not symbol:
+            return apology("Must provide a stock")
+        try:
+            shares = int(request.form.get("shares"))
+        except:
+            return apology("Must provide number of shares")
+
+        # verify if the data exists in database
+        portfolio = db.execute("SELECT shares FROM portfolio WHERE id=:id AND company=:company",
+                                  id=session["user_id"], company=symbol)
+        if not portfolio:
+            return apology("can't sell what you don't have")
+
+        # verify if user owns enough shares to sell
+        owned_shares = int(portfolio[0]["shares"])
+        if shares > owned_shares:
+            return apology("you don't own that many")
+        remaining_shares = owned_shares - shares
+
+        # delete entire row if no remaining stocks or update otherwise
+        if remaining_shares == 0:
+            db.execute("DELETE FROM portfolio WHERE id=:id AND company=:company",
+                       company=symbol, id=session["user_id"])
+        else:
+            db.execute("UPDATE portfolio SET shares=:shares WHERE id=:id AND company=:company",
+                       shares=remaining_shares, company=symbol, id=session["user_id"])
+
+        # get the current value of the stock and updated cash value after sale
+        user = db.execute("SELECT cash FROM users WHERE id=:id", id=session["user_id"])
+        stocks = lookup(symbol)
+        current_price = float(stocks["price"])
+        cash = float(user[0]["cash"])
+        total_cash = cash + (current_price * shares)
+        db.execute("UPDATE users SET cash=:cash WHERE id=:id", cash=total_cash, id=session["user_id"])
+
+        # update history database
+        db.execute("INSERT INTO history (id, company, shares, price, date) "
+                   "VALUES (:id, :company, :shares, :price, :date)",
+                   id=session["user_id"], company=symbol,
+                   shares=-shares, price=current_price,
+                   date=datetime.now().isoformat(' ', 'seconds'))
+
+        return redirect("/")
+
+    else:
+        return render_template("sell.html")
 
 
 def errorhandler(e):
